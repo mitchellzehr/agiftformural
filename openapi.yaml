@@ -1,0 +1,466 @@
+openapi: 3.0.3
+info:
+  title: Mural API
+  description: |
+    HTTP API exposed by the Mural server (`cmd/server`). JSON request bodies must not include unknown fields.
+    Timestamps are ISO 8601 / RFC 3339 strings (the server uses `RFC3339Nano` formatting).
+  version: 1.0.0
+
+servers:
+  - url: https://agiftformural-production.up.railway.app
+    description: Production (Railway)
+  - url: http://localhost:{port}
+    variables:
+      port:
+        default: "8080"
+        description: Server port from configuration (e.g. `PORT` env)
+
+paths:
+  /health:
+    get:
+      summary: Liveness / health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /products:
+    get:
+      summary: List products
+      operationId: listProducts
+      responses:
+        "200":
+          description: Catalog products
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductListResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders:
+    get:
+      summary: List orders with line items
+      operationId: listOrders
+      description: |
+        Returns orders and their items; each entry groups one order with its line items.
+      responses:
+        "200":
+          description: Orders with nested items per order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderListResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      summary: Create order
+      operationId: createOrder
+      description: |
+        Creates an order in `pending_payment` status. Line unit prices are resolved from the product catalog.
+        Server-generated UUIDs are used when `id` (order) or line `id` is omitted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "201":
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetailResponse"
+        "400":
+          description: Invalid JSON, validation error, or service validation (`error` may include a `service:`-prefixed message)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Referenced product not found
+          content:
+            application/json:
+              schema:
+                example:
+                  error: product_not_found
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders/{id}:
+    get:
+      summary: Get order by ID
+      operationId: getOrderById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Order and line items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetailResponse"
+        "400":
+          description: Missing order id
+          content:
+            application/json:
+              schema:
+                example:
+                  error: missing order id
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                example:
+                  error: not_found
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /webhooks/payment:
+    post:
+      summary: Payment notification webhook
+      operationId: postPaymentWebhook
+      description: |
+        Records a payment when `amount` matches the order total (within float tolerance).
+        Request body is limited to 1 MiB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentWebhookRequest"
+      responses:
+        "200":
+          description: Payment recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          description: Invalid JSON, missing `order_id`, or amount mismatch
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - example:
+                      error: invalid json
+                  - example:
+                      error: order_id required
+                  - example:
+                      error: amount does not match order total
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                example:
+                  error: order_not_found
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /withdrawals:
+    get:
+      summary: List withdrawals
+      operationId: listWithdrawals
+      responses:
+        "200":
+          description: Withdrawals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalListResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /withdrawals/{id}:
+    get:
+      summary: Get withdrawal by ID
+      operationId: getWithdrawalById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Withdrawal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalDetailResponse"
+        "400":
+          description: Missing withdrawal id
+          content:
+            application/json:
+              schema:
+                example:
+                  error: missing withdrawal id
+        "404":
+          description: Withdrawal not found
+          content:
+            application/json:
+              schema:
+                example:
+                  error: not_found
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          example: true
+
+    OkResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          example: true
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Machine-oriented or human-readable message from the server
+
+    Product:
+      type: object
+      required: [id, name, price, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        price:
+          type: number
+          format: double
+        created_at:
+          type: string
+          format: date-time
+          description: RFC 3339 (nanosecond precision may appear)
+
+    ProductListResponse:
+      type: object
+      required: [products]
+      properties:
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/Product"
+
+    OrderStatus:
+      type: string
+      enum:
+        - pending_payment
+        - paid
+        - payout_pending
+        - completed
+        - failed
+
+    Order:
+      type: object
+      required: [id, status, total_amount, currency, created_at]
+      properties:
+        id:
+          type: string
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        total_amount:
+          type: number
+          format: double
+        currency:
+          type: string
+          description: e.g. USDC
+        created_at:
+          type: string
+          format: date-time
+
+    OrderItem:
+      type: object
+      required: [id, order_id, product_id, quantity, price]
+      properties:
+        id:
+          type: string
+        order_id:
+          type: string
+        product_id:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        price:
+          type: number
+          format: double
+          description: Unit price snapshot at order time
+
+    OrderDetailResponse:
+      type: object
+      required: [order, items]
+      properties:
+        order:
+          $ref: "#/components/schemas/Order"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+
+    OrderListEntry:
+      type: object
+      required: [order, items]
+      properties:
+        order:
+          $ref: "#/components/schemas/Order"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+
+    OrderListResponse:
+      type: object
+      required: [orders]
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderListEntry"
+
+    CreateOrderLine:
+      type: object
+      required: [product_id, quantity]
+      properties:
+        id:
+          type: string
+          description: Optional; server generates a UUID if empty
+        product_id:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+
+    CreateOrderRequest:
+      type: object
+      required: [currency]
+      properties:
+        id:
+          type: string
+          description: Optional order id; server generates a UUID if empty
+        currency:
+          type: string
+        items:
+          type: array
+          description: Line items; omitted or empty yields an order with no lines
+          items:
+            $ref: "#/components/schemas/CreateOrderLine"
+
+    PaymentWebhookRequest:
+      type: object
+      required: [order_id, amount]
+      properties:
+        order_id:
+          type: string
+        amount:
+          type: number
+          format: double
+          description: Must match the order `total_amount` within float epsilon (~1e-6)
+
+    WithdrawalStatus:
+      type: string
+      enum:
+        - PENDING
+        - COMPLETED
+        - FAILED
+
+    Withdrawal:
+      type: object
+      required:
+        - id
+        - order_id
+        - mural_transfer_id
+        - amount
+        - source_currency
+        - dest_currency
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+        order_id:
+          type: string
+        mural_transfer_id:
+          type: string
+        amount:
+          type: number
+          format: double
+        source_currency:
+          type: string
+        dest_currency:
+          type: string
+        status:
+          $ref: "#/components/schemas/WithdrawalStatus"
+        created_at:
+          type: string
+          format: date-time
+
+    WithdrawalListResponse:
+      type: object
+      required: [withdrawals]
+      properties:
+        withdrawals:
+          type: array
+          items:
+            $ref: "#/components/schemas/Withdrawal"
+
+    WithdrawalDetailResponse:
+      type: object
+      required: [withdrawal]
+      properties:
+        withdrawal:
+          $ref: "#/components/schemas/Withdrawal"
