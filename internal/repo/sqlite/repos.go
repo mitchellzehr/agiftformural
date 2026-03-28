@@ -3,17 +3,17 @@ package sqlite
 import (
 	"github.com/jmoiron/sqlx"
 
-	"mural/internal/repo"
+	"mural/internal/service"
 )
 
 type Repos struct {
 	db *sqlx.DB
 }
 
-// NewRepos builds repo.Repos backed by SQLite.
-func NewRepos(db *sqlx.DB) repo.Repos {
+// NewRepos builds service.Repos backed by SQLite.
+func NewRepos(db *sqlx.DB) service.Repos {
 	r := &Repos{db: db}
-	return repo.Repos{
+	return service.Repos{
 		Products:    r,
 		Orders:      r,
 		Payments:    r,

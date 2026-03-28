@@ -1,4 +1,4 @@
-package repo
+package service
 
 import (
 	"context"
@@ -32,7 +32,7 @@ type WithdrawalStore interface {
 	CreateWithdrawal(ctx context.Context, w *model.Withdrawal) error
 }
 
-// Repos groups repository interfaces for wiring in main and HTTP handlers.
+// Repos groups repository interfaces for wiring in main and persistence constructors.
 type Repos struct {
 	Products    ProductReader
 	Orders      OrderStore
