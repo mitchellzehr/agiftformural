@@ -31,11 +31,3 @@ type WithdrawalStore interface {
 	GetWithdrawal(ctx context.Context, id string) (*model.Withdrawal, error)
 	CreateWithdrawal(ctx context.Context, w *model.Withdrawal) error
 }
-
-// Repos groups repository interfaces for wiring in main and persistence constructors.
-type Repos struct {
-	Products    ProductReader
-	Orders      OrderStore
-	Payments    PaymentStore
-	Withdrawals WithdrawalStore
-}

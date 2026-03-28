@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,14 @@ import (
 	muralerrors "mural/internal/errors"
 	"mural/internal/model"
 )
+
+// OrderSvc is what order and payment webhook handlers need from the application layer.
+type OrderSvc interface {
+	ListOrders(ctx context.Context) ([]model.Order, []model.OrderItem, error)
+	GetOrderByID(ctx context.Context, id string) (*model.Order, []model.OrderItem, error)
+	CreateOrder(ctx context.Context, order *model.Order, items []model.OrderItem) error
+	RecordPayment(ctx context.Context, p *model.Payment) error
+}
 
 type orderResponse struct {
 	ID          string  `json:"id"`

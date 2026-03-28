@@ -1,18 +1,16 @@
 package handler
 
-import "mural/internal/service"
-
 // Server is the HTTP surface; dependencies are narrow interfaces declared alongside handlers.
 type Server struct {
 	products    ProductCatalog
-	orderSvc    service.OrderService
+	orderSvc    OrderSvc
 	withdrawals WithdrawalReader
 }
 
 // Deps bundles constructor inputs for New.
 type Deps struct {
 	Products    ProductCatalog
-	OrderSvc    service.OrderService
+	OrderSvc    OrderSvc
 	Withdrawals WithdrawalReader
 }
 
