@@ -1,0 +1,11 @@
+# Railway uses Nixpacks by default for GitHub deployments.
+# CGO-free build for modernc.org/sqlite.
+
+[variables]
+CGO_ENABLED = "0"
+
+[phases.build]
+cmds = ["go build -trimpath -ldflags='-s -w' -o server ./cmd/server"]
+
+[start]
+cmd = "./server"
