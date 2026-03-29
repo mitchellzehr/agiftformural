@@ -7,11 +7,15 @@ HTTP contract: [`openapi.yaml`](openapi.yaml).
 ## Local run
 
 ```bash
-export MURAL_API_KEY="your-staging-api-key"
 export SQLITE_PATH=./app.db
 export PORT=8080
+# Optional Mural outbound API (payment webhook → CreateTransfer). If unset, a stub is used.
+# export MURAL_BASE_URL="https://api-staging.muralpay.com"
+# export MURAL_API_KEY="your-staging-key"
 go run ./cmd/server
 ```
+
+The server runs `SeedDefaultProducts` after migrations: three demo catalog rows are inserted: `prod-poster-1`, `prod-stickers-1`, `prod-pin-1`.
 
 ## In production
 
@@ -25,112 +29,77 @@ Smoke test:
 curl -sS "https://agiftformural-production.up.railway.app/health"
 ```
 
-Expect `{"ok":true}`. Use the same host as `BASE` in the curl examples below.
+Expect `{"ok":true}`.
 
 ## Deploy on Railway (GitHub + Nixpacks)
 
 1. Push this repo to GitHub and create a new Railway project from the repository.
 2. Railway will detect **Nixpacks**; `nixpacks.toml` builds `./cmd/server` and starts `./server`.
 
-## API spec (quick reference)
-
-JSON only for bodies (`Content-Type: application/json`). Request bodies must not include unknown fields. Timestamps are RFC 3339 strings (server may use nanosecond precision). Canonical detail lives in [`openapi.yaml`](openapi.yaml).
-
-### Endpoints
-
-| Method | Path | Summary |
-| --- | --- | --- |
-| `GET` | `/health` | Liveness |
-| `GET` | `/products` | List catalog products |
-| `GET` | `/orders` | List orders, each with nested line items |
-| `POST` | `/orders` | Create order in `pending_payment`; line unit prices from catalog |
-| `GET` | `/orders/{id}` | Order + line items |
-| `POST` | `/webhooks/payment` | Record payment when `amount` matches order total (float tolerance ~1e-6); body max 1 MiB |
-| `GET` | `/withdrawals` | List withdrawals |
-| `GET` | `/withdrawals/{id}` | Single withdrawal |
-
-### Request bodies
-
-**`POST /orders`** (`CreateOrderRequest`)
-
-| Field | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `currency` | string | yes | e.g. `USD` / `USDC` |
-| `id` | string | no | Order id; server generates UUID if omitted |
-| `items` | array | no | Omit or `[]` for an order with no lines |
-| `items[].product_id` | string | yes (per line) | Must exist in catalog |
-| `items[].quantity` | integer | yes (per line) | ≥ 1 |
-| `items[].id` | string | no | Line id; server UUID if omitted |
-
-**`POST /webhooks/payment`** (`PaymentWebhookRequest`)
-
-| Field | Type | Required |
-| --- | --- | --- |
-| `order_id` | string | yes |
-| `amount` | number | yes | Must equal the order’s `total_amount` within tolerance |
-
-### Successful response shapes
-
-| Call | Status | Body |
-| --- | --- | --- |
-| `GET /health` | 200 | `{ "ok": true }` |
-| `GET /products` | 200 | `{ "products": [ { "id", "name", "price", "created_at" } ] }` |
-| `GET /orders` | 200 | `{ "orders": [ { "order": Order, "items": OrderItem[] } ] }` |
-| `POST /orders` | 201 | `{ "order": Order, "items": OrderItem[] }` |
-| `GET /orders/{id}` | 200 | `{ "order": Order, "items": OrderItem[] }` |
-| `POST /webhooks/payment` | 200 | `{ "ok": true }` |
-| `GET /withdrawals` | 200 | `{ "withdrawals": Withdrawal[] }` |
-| `GET /withdrawals/{id}` | 200 | `{ "withdrawal": Withdrawal }` |
-
-### Shared types
-
-- **Order:** `id`, `status`, `total_amount`, `currency`, `created_at`
-- **Order `status`:** `pending_payment` · `paid` · `payout_pending` · `completed` · `failed`
-- **OrderItem:** `id`, `order_id`, `product_id`, `quantity`, `price` (unit price at order time)
-- **Withdrawal:** `id`, `order_id`, `mural_transfer_id`, `amount`, `source_currency`, `dest_currency`, `status`, `created_at`
-- **Withdrawal `status`:** `PENDING` · `COMPLETED` · `FAILED`
-- **Errors (typical):** `{ "error": "…" }` on 4xx / 5xx
-
 ## API examples (curl)
 
-Set `BASE` to where the server listens:
-
-- **Local:** `http://localhost:8080` (or your `PORT`)
-- **Production:** `https://agiftformural-production.up.railway.app`
+Local server (default `PORT=8080`):
 
 ```bash
-BASE="http://localhost:8080"
-
 # Liveness
-curl -sS "$BASE/health"
+curl -sS "http://localhost:8080/health"
 
-# Catalog (use returned product ids for creating orders)
-curl -sS "$BASE/products"
+# Catalog
+curl -sS "http://localhost:8080/products"
 
-# Create order — replace PRODUCT_ID with a value from GET /products
-curl -sS -X POST "$BASE/orders" \
+# Create order (1× poster + 2× sticker sheet → total 54.99 when using seeded catalog)
+curl -sS -X POST "http://localhost:8080/orders" \
   -H "Content-Type: application/json" \
-  -d '{"currency":"USD","items":[{"product_id":"PRODUCT_ID","quantity":1}]}'
+  -d '{"currency":"USD","items":[{"product_id":"prod-poster-1","quantity":1},{"product_id":"prod-stickers-1","quantity":2}]}'
 
 # List orders (nested line items)
-curl -sS "$BASE/orders"
+curl -sS "http://localhost:8080/orders"
 
-# Get one order — replace ORDER_ID
-curl -sS "$BASE/orders/ORDER_ID"
+# Get one order — substitute the `id` from the create-order response
+curl -sS "http://localhost:8080/orders/ORDER_ID"
 
-# Payment webhook — `amount` must match the order's `total_amount` from GET /orders/{id}
-curl -sS -X POST "$BASE/webhooks/payment" \
+# Payment webhook — `amount` must match that order's `total_amount` (e.g. 54.99 for the example above)
+curl -sS -X POST "http://localhost:8080/webhooks/payment" \
   -H "Content-Type: application/json" \
-  -d '{"order_id":"ORDER_ID","amount":99.5}'
+  -d '{"order_id":"ORDER_ID","amount":54.99}'
 
 # Withdrawals
-curl -sS "$BASE/withdrawals"
-curl -sS "$BASE/withdrawals/WITHDRAWAL_ID"
+curl -sS "http://localhost:8080/withdrawals"
+curl -sS "http://localhost:8080/withdrawals/WITHDRAWAL_ID"
+```
+
+Production (`https://agiftformural-production.up.railway.app`):
+
+```bash
+# Liveness
+curl -sS "https://agiftformural-production.up.railway.app/health"
+
+# Catalog
+curl -sS "https://agiftformural-production.up.railway.app/products"
+
+# Create order (1× poster + 2× sticker sheet → total 54.99 when catalog is seeded)
+curl -sS -X POST "https://agiftformural-production.up.railway.app/orders" \
+  -H "Content-Type: application/json" \
+  -d '{"currency":"USD","items":[{"product_id":"prod-poster-1","quantity":1},{"product_id":"prod-stickers-1","quantity":2}]}'
+
+# List orders
+curl -sS "https://agiftformural-production.up.railway.app/orders"
+
+# Get one order — substitute the `id` from the create-order response
+curl -sS "https://agiftformural-production.up.railway.app/orders/ORDER_ID"
+
+# Payment webhook — `amount` must match that order's `total_amount`
+curl -sS -X POST "https://agiftformural-production.up.railway.app/webhooks/payment" \
+  -H "Content-Type: application/json" \
+  -d '{"order_id":"ORDER_ID","amount":54.99}'
+
+# Withdrawals
+curl -sS "https://agiftformural-production.up.railway.app/withdrawals"
+curl -sS "https://agiftformural-production.up.railway.app/withdrawals/WITHDRAWAL_ID"
 ```
 
 ## Current status
-
-- Live HTTP API (orders, products, withdrawals, payment webhook). See **API spec** above and [`openapi.yaml`](openapi.yaml).
+- live API with ability
 
 ## Future work
 
