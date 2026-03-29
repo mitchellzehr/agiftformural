@@ -81,6 +81,22 @@ func (r *Repos) GetOrderByID(ctx context.Context, id string) (*model.Order, []mo
 	return &o, items, nil
 }
 
+// UpdateOrderStatus sets the order row status; returns ErrNotFound if id is missing.
+func (r *Repos) UpdateOrderStatus(ctx context.Context, orderID string, status model.OrderStatus) error {
+	res, err := r.db.ExecContext(ctx, `UPDATE orders SET status = ? WHERE id = ?`, string(status), orderID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return muralerrors.ErrNotFound
+	}
+	return nil
+}
+
 func (r *Repos) ListOrders(ctx context.Context) ([]model.Order, []model.OrderItem, error) {
 	var rows []orderRow
 	if err := r.db.SelectContext(ctx, &rows, `

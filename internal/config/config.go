@@ -1,10 +1,15 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 type Config struct {
-	Port       string
-	SQLitePath string
+	Port        string
+	SQLitePath  string
+	MuralURL    string
+	MuralAPIKey string
 }
 
 func Load() Config {
@@ -16,5 +21,15 @@ func Load() Config {
 	if path == "" {
 		path = "app.db"
 	}
-	return Config{Port: port, SQLitePath: path}
+	muralURL := strings.TrimSpace(os.Getenv("MURAL_BASE_URL"))
+	if muralURL == "" {
+		muralURL = "https://api-staging.muralpay.com"
+	}
+	apiKey := strings.TrimSpace(os.Getenv("MURAL_API_KEY"))
+	return Config{
+		Port:        port,
+		SQLitePath:  path,
+		MuralURL:    muralURL,
+		MuralAPIKey: apiKey,
+	}
 }

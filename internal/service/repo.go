@@ -17,6 +17,7 @@ type OrderStore interface {
 	CreateOrderWithItems(ctx context.Context, o *model.Order, items []model.OrderItem) error
 	GetOrderByID(ctx context.Context, id string) (*model.Order, []model.OrderItem, error)
 	ListOrders(ctx context.Context) ([]model.Order, []model.OrderItem, error)
+	UpdateOrderStatus(ctx context.Context, orderID string, status model.OrderStatus) error
 }
 
 // PaymentStore supports inserting payment rows (append-only).

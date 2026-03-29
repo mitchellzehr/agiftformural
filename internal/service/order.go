@@ -5,18 +5,39 @@ import (
 	"fmt"
 
 	"mural/internal/model"
+
+	"github.com/google/uuid"
 )
 
-// OrderService coordinates orders, catalog-backed line pricing, and payment rows.
-type OrderService struct {
-	orders   OrderStore
-	products ProductReader
-	payments PaymentStore
+// MuralClient is implemented by mural.Client (HTTP) and mural.StubClient (no network).
+type MuralClient interface {
+	CreateTransfer(ctx context.Context, amount float64) (transferID string, err error)
 }
 
-// NewOrderService wires order, catalog, and payment persistence.
-func NewOrderService(orders OrderStore, products ProductReader, payments PaymentStore) *OrderService {
-	return &OrderService{orders: orders, products: products, payments: payments}
+// OrderService coordinates orders, catalog-backed line pricing, payments, and Mural payout stubs.
+type OrderService struct {
+	orders      OrderStore
+	products    ProductReader
+	payments    PaymentStore
+	withdrawals WithdrawalStore
+	muralClient MuralClient
+}
+
+// NewOrderService wires order, catalog, payment, withdrawal persistence, and the Mural client (or stub).
+func NewOrderService(
+	orders OrderStore,
+	products ProductReader,
+	payments PaymentStore,
+	withdrawals WithdrawalStore,
+	muralClient MuralClient,
+) *OrderService {
+	return &OrderService{
+		orders:      orders,
+		products:    products,
+		payments:    payments,
+		withdrawals: withdrawals,
+		muralClient: muralClient,
+	}
 }
 
 // ListOrders returns all orders and a flat slice of all line items (same contract as the store).
@@ -58,12 +79,38 @@ func (s *OrderService) CreateOrder(ctx context.Context, order *model.Order, item
 	return s.orders.CreateOrderWithItems(ctx, order, resolved)
 }
 
-// RecordPayment appends a payment row (e.g. after a webhook confirms funds).
+// RecordPayment persists the payment, marks the order paid, and calls Mural CreateTransfer (stub or HTTP client).
+// If the order is already paid, returns nil without inserting another payment (idempotent for duplicate webhooks).
 func (s *OrderService) RecordPayment(ctx context.Context, p *model.Payment) error {
 	if p == nil {
 		return fmt.Errorf("service: nil payment")
 	}
-	return s.payments.CreatePayment(ctx, p)
+	order, _, err := s.orders.GetOrderByID(ctx, p.OrderID)
+	if err != nil {
+		return err
+	}
+	if order.Status == model.OrderStatusPaid {
+		return nil
+	}
+	if err := s.payments.CreatePayment(ctx, p); err != nil {
+		return err
+	}
+	if err := s.orders.UpdateOrderStatus(ctx, p.OrderID, model.OrderStatusPaid); err != nil {
+		return err
+	}
+	transferID, err := s.muralClient.CreateTransfer(ctx, p.Amount)
+	if err != nil {
+		return err
+	}
+	return s.withdrawals.CreateWithdrawal(ctx, &model.Withdrawal{
+		ID:              uuid.NewString(),
+		OrderID:         p.OrderID,
+		MuralTransferID: transferID,
+		Amount:          p.Amount,
+		SourceCurrency:  order.Currency,
+		DestCurrency:    "COP",
+		Status:          model.WithdrawalStatusPending,
+	})
 }
 
 // GetPaymentForOrder returns the latest payment row for the order, or ErrNotFound from the store.

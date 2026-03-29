@@ -7,6 +7,7 @@ import (
 
 	"mural/internal/config"
 	"mural/internal/handler"
+	"mural/internal/mural"
 	sqliteRepo "mural/internal/repo/sqlite"
 	"mural/internal/service"
 )
@@ -24,10 +25,21 @@ func main() {
 	if err := sqliteRepo.InitSchema(ctx, db); err != nil {
 		log.Fatalf("schema: %v", err)
 	}
+	if err := sqliteRepo.SeedDefaultProducts(ctx, db); err != nil {
+		log.Fatalf("seed products: %v", err)
+	}
 
 	repos := sqliteRepo.NewRepos(db)
 	store := &repos
-	orderSvc := service.NewOrderService(store, store, store)
+
+	var muralSvc service.MuralClient = mural.NewClient(cfg.MuralURL, cfg.MuralAPIKey)
+	if cfg.MuralAPIKey != "" {
+		muralSvc = mural.NewClient(cfg.MuralURL, cfg.MuralAPIKey)
+	} else {
+		log.Print("mural: MURAL_API_KEY unset; using StubClient (no outbound CreateTransfer HTTP)")
+	}
+
+	orderSvc := service.NewOrderService(store, store, store, store, muralSvc)
 	h := handler.New(handler.Deps{
 		Products:    store,
 		OrderSvc:    orderSvc,

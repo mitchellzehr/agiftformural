@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -91,10 +90,10 @@ func (s *Server) GetOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) CreateOrder(w http.ResponseWriter, r *http.Request) {
-	const maxBody = 1 << 20
-	dec := json.NewDecoder(io.LimitReader(r.Body, maxBody))
+	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	var req createOrderRequest
+
 	if err := dec.Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json"})
 		return
@@ -108,6 +107,7 @@ func (s *Server) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	if orderID == "" {
 		orderID = uuid.NewString()
 	}
+
 	now := time.Now().UTC()
 	items := make([]model.OrderItem, len(req.Items))
 	for i := range req.Items {
@@ -131,6 +131,7 @@ func (s *Server) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			Quantity:  line.Quantity,
 		}
 	}
+
 	order := &model.Order{
 		ID:        orderID,
 		Status:    model.OrderStatusPendingPayment,
@@ -142,13 +143,10 @@ func (s *Server) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "product_not_found"})
 			return
 		}
-		if isCreateOrderClientErr(err) {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
-			return
-		}
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
+
 	o, resolved, err := s.orderSvc.GetOrderByID(r.Context(), orderID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -160,9 +158,7 @@ func (s *Server) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func isCreateOrderClientErr(err error) bool {
-	return strings.HasPrefix(err.Error(), "service:")
-}
+// TRANSLATION HELPERS
 
 func orderFromModel(o model.Order) orderResponse {
 	return orderResponse{
